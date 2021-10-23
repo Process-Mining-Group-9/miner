@@ -1,0 +1,5 @@
+fastapi==0.70.0
+PyYAML==6.0
+types-PyYAML==5.4.12
+uvicorn==0.15.0
+mypy==0.910
