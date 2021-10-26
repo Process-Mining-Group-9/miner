@@ -27,7 +27,7 @@ async def notify(request: Request, event: MqttEvent):
 
 
 def add_miner(name: str) -> Miner:
-    miner = Miner()
+    miner = Miner(name, config)
     process = Process(target=miner.start)
     process.start()
     miners[name] = miner
