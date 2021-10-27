@@ -2,6 +2,7 @@ from mqtt_event import MqttEvent
 import httpx
 import pandas as pd
 import os
+import logging
 
 from pm4py import format_dataframe
 from pm4py.objects.petri_net.obj import PetriNet, Marking

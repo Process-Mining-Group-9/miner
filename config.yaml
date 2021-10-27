@@ -1,2 +1,8 @@
 db:
   address: "http://localhost:8000"
+log:
+  path: "../logs/app.log"
+  level: "info"
+  rotation: "20 days"
+  retention: "1 months"
+  format: "<level>{level: <8}</level> <green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> request id: {extra[request_id]} - <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>"

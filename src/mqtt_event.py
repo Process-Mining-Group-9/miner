@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 class MqttEvent(BaseModel):
     rowid: Optional[int] = None
-    timestamp: int
+    timestamp: float
     base: Optional[str] = None
     source: Optional[str] = None
     process: str
