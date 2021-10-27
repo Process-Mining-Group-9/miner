@@ -11,6 +11,10 @@ class MqttEvent(BaseModel):
     activity: str
     payload: Optional[str] = None
 
+    def to_min_dict(self) -> dict:
+        return {'timestamp': self.timestamp, 'process': self.process,
+                'activity': self.activity, 'payload': self.payload}
+
     def to_dict(self) -> dict:
         return {'rowid': self.rowid, 'timestamp': self.timestamp, 'base': self.base, 'source': self.source,
                 'process': self.process, 'activity': self.activity, 'payload': self.payload}
