@@ -62,6 +62,7 @@ async def notify(request: Request, event: MqttEvent):
     if event.source not in miners:
         add_miner(event.source, [])
     miners[event.source].new_event(event)
+    request.app.logger.info(f'Received new event: {event}')
 
 
 if __name__ == '__main__':
