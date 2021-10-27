@@ -13,13 +13,7 @@ class Miner:
         result = httpx.post(self.config['db']['address'] + '/events/add', json=event.to_dict())
         # Update model with new event
 
-    def __init__(self, log: str, config: dict):
+    def __init__(self, log: str, config: dict, events: list[MqttEvent] = None):
         self.log_name = log
         self.config = config
-        self.events: list[MqttEvent] = []
-
-        # Get existing events from the database
-        result = httpx.get(self.config['db']['address'] + f'/events/{log}')
-        if result.is_success:
-            events: list[MqttEvent] = json.loads(result.text, object_hook=lambda d: MqttEvent(**d))
-            self.events.extend(events)
+        self.events: list[MqttEvent] = events if events is not None else []
