@@ -1,4 +1,6 @@
+from multiprocessing import Queue
 from mqtt_event import MqttEvent
+from state import StateUpdate
 from typing import Tuple
 import pandas as pd
 import db_helper
@@ -39,10 +41,11 @@ def mine_events(log) -> Tuple:
 
 
 class Miner:
-    def __init__(self, log: str, config: dict, events: list[MqttEvent] = None):
+    def __init__(self, log: str, config: dict, update_queue: Queue, events: list[MqttEvent] = None):
         """Initialize the miner with potentially existing events."""
         self.log_name = log
         self.config = config
+        self.update_queue = update_queue
         self.events: list[MqttEvent] = events if events is not None else []
 
     def start(self):
@@ -59,3 +62,17 @@ class Miner:
         self.events.append(event)
         db_helper.add_event(self.config['db']['address'], event)  # Insert new event into database
         self.start()  # Temporarily re-discover model with all events until an online discovery algorithm is implemented
+        self.create_update()
+
+    def latest_complete_update(self) -> StateUpdate:
+        """Get an update that contains the entire Petri net model and ongoing instances.
+        This is used to send the latest state for newly connected WebSocket clients."""
+        # TODO: Implement
+        update = StateUpdate(self.log_name, [], [], [], [])
+        return update
+
+    def create_update(self):
+        """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
+        # TODO: Tests with broadcasting updates to WS clients
+        update = StateUpdate(self.log_name, [], [], [], [])
+        self.update_queue.put(update, block=True, timeout=1)

@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi_utils.tasks import repeat_every
 from ws_connection_manager import ConnectionManager
 from custom_logging import CustomizeLogger
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 from mqtt_event import MqttEvent
+from state import StateUpdate
 from typing import Dict
 from miner import Miner
 import db_helper
@@ -12,6 +14,7 @@ import uvicorn
 import yaml
 
 miners: Dict[str, Miner] = {}
+update_queues: Dict[str, Queue] = {}
 config: Dict = yaml.safe_load(open('../config.yaml'))
 
 
@@ -26,10 +29,12 @@ def create_app() -> FastAPI:
 def add_miner(name: str, existing_events: list[MqttEvent]) -> Miner:
     """Add a miner process to the process pool."""
     logging.info(f'Adding miner instance for log {name}')
-    miner = Miner(name, config, existing_events)
+    update_queue = Queue()
+    miner = Miner(name, config, update_queue, existing_events)
     process = Process(target=miner.start)
     process.start()
     miners[name] = miner
+    update_queues[name] = update_queue
     return miner
 
 
@@ -44,6 +49,8 @@ app: FastAPI = create_app()
 manager = ConnectionManager()
 discover_existing_data()
 
+
+# REST API Part
 
 @app.get('/')
 async def root():
@@ -70,21 +77,48 @@ async def notify(request: Request, event: MqttEvent):
     miners[event.source].add_event(event)
 
 
+# WebSockets Part
+
+@app.on_event('startup')
+@repeat_every(seconds=1, wait_first=True, raise_exceptions=True)
+async def broadcast_queued_updates():
+    for log, queue in update_queues.items():
+        updates: list[StateUpdate] = []
+        while not queue.empty():
+            updates.append(queue.get(block=True, timeout=1))
+        if updates:
+            try:
+                for update in updates:
+                    update_text = update.to_json()
+                    recipients = await manager.broadcast(update_text, log)
+                    logging.info(f'Broadcasted update to {recipients} "{log}" clients: {update_text}')
+            except Exception as e:
+                logging.error(e)
+
+
 @app.websocket('/ws/{log}')
-async def get(websocket: WebSocket, log: str):
-    await manager.connect(websocket)
+async def ws(websocket: WebSocket, log: str):
+    await manager.connect(websocket, log)
     try:
         logging.info(f'WS connection opened with client from: {websocket.client.host}:{websocket.client.port}')
         if log not in miners.keys():
-            logging.warning(f'A WS connection was opened for log "{log}", but no miner exists for this log.')
+            logging.warning(f'WS connection opened for log "{log}", but no miner exists for this log.')
             raise WebSocketDisconnect(code=1003)  # https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
 
-        await manager.send_personal_message(f'Hello, soon we will send some data for {log}', websocket)  # TODO: Placeholder
-        while True:
-            response = await websocket.receive_text()  # Placeholder to not close connection right after
-    except WebSocketDisconnect:
+        # Send latest complete model and ongoing instances
+        update = miners[log].latest_complete_update()
+        update_text = update.to_json()
+        await websocket.send_text(update_text)
+        logging.info(f'Sent latest state to newly connected WS client from {websocket.client.host}:{websocket.client.port}: {update_text}')
+
+        while True:  # We need to await something, otherwise the connection will terminate after executing this method
+            msg = await websocket.receive_text()
+            if msg == 'stop':
+                logging.info(f'Received stop command, closing WS connection')
+                raise WebSocketDisconnect(code=1000)
+    except WebSocketDisconnect as e:
         manager.disconnect(websocket)
-        logging.info(f'WS connection closed with client from: {websocket.client.host}:{websocket.client.port}')
+        logging.info(f'WS connection closed with client from: {websocket.client.host}:{websocket.client.port}. Status code: {e.code}')
 
 
 if __name__ == '__main__':
