@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Request, HTTPException
-from starlette.responses import RedirectResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import RedirectResponse, JSONResponse
+from ws_connection_manager import ConnectionManager
 from custom_logging import CustomizeLogger
 from multiprocessing import Process
 from mqtt_event import MqttEvent
@@ -40,6 +41,7 @@ def discover_existing_data():
 
 
 app: FastAPI = create_app()
+manager = ConnectionManager()
 discover_existing_data()
 
 
@@ -49,7 +51,14 @@ async def root():
     return RedirectResponse(url='/docs')
 
 
-@app.post("/notify")
+@app.get('/logs')
+async def logs(request: Request):
+    """Gets a list of logs available to connect to via WebSockets"""
+    return JSONResponse(list(miners.keys()))
+
+
+# TODO: Restrict access to only localhost
+@app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
     if not event.source:
@@ -59,6 +68,23 @@ async def notify(request: Request, event: MqttEvent):
     if event.source not in miners:
         add_miner(event.source, [])
     miners[event.source].add_event(event)
+
+
+@app.websocket('/ws/{log}')
+async def get(websocket: WebSocket, log: str):
+    await manager.connect(websocket)
+    try:
+        logging.info(f'WS connection opened with client from: {websocket.client.host}:{websocket.client.port}')
+        if log not in miners.keys():
+            logging.warning(f'A WS connection was opened for log "{log}", but no miner exists for this log.')
+            raise WebSocketDisconnect(code=1003)  # https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
+
+        await manager.send_personal_message(f'Hello, soon we will send some data for {log}', websocket)  # TODO: Placeholder
+        while True:
+            response = await websocket.receive_text()  # Placeholder to not close connection right after
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logging.info(f'WS connection closed with client from: {websocket.client.host}:{websocket.client.port}')
 
 
 if __name__ == '__main__':
