@@ -68,8 +68,11 @@ async def logs(request: Request):
 @app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
+    if request.client.host not in ('127.0.0.1', 'localhost'):
+        raise HTTPException(status_code=403, detail='Remote access to this endpoint is not allowed.')
+
     if not event.source:
-        raise HTTPException(status_code=400, detail=f'Source value must be set')
+        raise HTTPException(status_code=400, detail='Source value must be set')
 
     logging.info(f'Received new event notification: {event}')
     if event.source not in miners:
