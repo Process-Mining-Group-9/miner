@@ -62,6 +62,7 @@ class Miner:
         self.append_events_to_stream(self.initial_events)
 
     def append_events_to_stream(self, events: list[MqttEvent]):
+        """Append new events to the live event stream"""
         if events:
             logging.debug(f'Appending {len(events)} new events to stream of "{self.log_name}" miner.')
             event_stream = get_pm4py_stream(events)
@@ -69,10 +70,14 @@ class Miner:
                 self.live_event_stream.append(event)
 
     def update(self):
-        logging.info(f'Updating Petri net model for miner "{self.log_name}"')
+        """Update the Petri net and broadcast any changes to the WebSocket clients"""
+        logging.info(f'Updating Petri net model for miner "{self.log_name}".')
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
-        # save_petri_net_image(net, initial, final, name=self.log_name)
+
+        if self.config['miner']['save_pictures'] == 'true':
+            save_petri_net_image(net, initial, final, name=self.log_name)
+
         self.create_update(self.petri_net, (net, initial, final))
 
     def create_update(self, previous: tuple[Optional[PetriNet], Optional[Marking], Optional[Marking]], new: tuple[PetriNet, Marking, Marking]):
@@ -90,25 +95,33 @@ class Miner:
 
         prev_state = petri_net_to_state_update(self.log_name, p_net)
         update_state = get_update_state(prev_state, new_state)
-        self.update_queue.put(update_state)
+
+        if update_state.is_not_empty():
+            self.update_queue.put(update_state)
+        else:
+            logging.info(f'No changes detected in model for miner "{self.log_name}".')
+
         self.petri_net = new
 
-    def latest_complete_update(self) -> State:
+    def latest_complete_update(self) -> StateUpdate:
         """Get an update that contains the entire Petri net model and ongoing instances.
         This is used to send the latest state for newly connected WebSocket clients."""
-        # TODO: Implement
-        update = State(self.log_name, set(), set(), set(), [])
-        return update
+        dfg, activities, start_act, end_act = self.streaming_dfg.get()
+        net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
+        state = petri_net_to_state_update(self.log_name, net)
+        return StateUpdate(self.log_name, state.places, set(), state.transitions, set(), state.edges, set(), [])
 
 
 # State helper methods
 
 
 def petri_net_to_state_update(name: str, net: PetriNet) -> State:
-    return State(name, places_to_list(net.places), transitions_to_list(net.transitions), arcs_to_list(net.arcs), [])
+    """Convert a Petri net to a simple state object."""
+    return State(name, places_to_set(net.places), transitions_to_set(net.transitions), arcs_to_set(net.arcs), [])
 
 
 def get_update_state(old: State, new: State) -> StateUpdate:
+    """Compare two states and determine what is new and what needs to be removed."""
     p_new = new.places - old.places
     p_rem = old.places - new.places
     t_new = new.transitions - old.transitions
@@ -118,22 +131,36 @@ def get_update_state(old: State, new: State) -> StateUpdate:
     return StateUpdate(new.log, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
 
 
-def places_to_list(places: set[PetriNet.Place]) -> set[StatePlace]:
+def places_to_set(places: set[PetriNet.Place]) -> set[StatePlace]:
+    """Convert a set of places of a Petri net to a simple set."""
     names: set[StatePlace] = set()
     for p in places:
         names.add(StatePlace(p.name))
     return names
 
 
-def transitions_to_list(transitions: set[PetriNet.Transition]) -> set[StateTransition]:
+def transitions_to_set(transitions: set[PetriNet.Transition]) -> set[StateTransition]:
+    """Convert a set of transitions of a Petri net to a simple set."""
     names: set[StateTransition] = set()
     for t in transitions:
-        names.add(StateTransition(t.name, t.label))
+        names.add(StateTransition(t.label if t.label else t.name))
     return names
 
 
-def arcs_to_list(arcs: set[PetriNet.Arc]) -> set[StateEdge]:
+def arcs_to_set(arcs: set[PetriNet.Arc]) -> set[StateEdge]:
+    """Convert a set of transitions of a Petri net to a simple set."""
     names: set[StateEdge] = set()
     for a in arcs:
-        names.add(StateEdge(a.source.name, a.target.name))
+        source, target = '', ''
+        if type(a.source) is PetriNet.Place:
+            source = a.source.name
+        elif type(a.source) is PetriNet.Transition:
+            source = a.source.label if a.source.label else a.source.name
+
+        if type(a.target) is PetriNet.Place:
+            target = a.target.name
+        elif type(a.target) is PetriNet.Transition:
+            target = a.target.label if a.target.label else a.target.name
+
+        names.add(StateEdge(source, target))
     return names

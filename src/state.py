@@ -17,14 +17,13 @@ class StatePlace(object):
 
 
 class StateTransition(object):
-    def __init__(self, id: str, name: str):
-        self.id = id
+    def __init__(self, name: str):
         self.name = name
 
     def __eq__(self, other):
         """Overrides the default implementation"""
         if isinstance(other, StateTransition):
-            return self.id == other.id and self.id == other.id
+            return self.name == other.name
         return NotImplemented
 
     def __hash__(self):
@@ -98,3 +97,7 @@ class StateUpdate(object):
 
     def to_json(self) -> str:
         return jsonpickle.encode(self, unpicklable=False)
+
+    def is_not_empty(self) -> bool:
+        return self.new_places or self.new_transitions or self.new_edges or self.removed_places or \
+               self.removed_transitions or self.removed_edges or self.markings or False  # or False to make expression boolean

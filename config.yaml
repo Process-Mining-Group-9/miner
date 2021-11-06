@@ -1,3 +1,5 @@
+miner:
+  save_pictures: "false"
 db:
   address: "http://localhost:8000"
 log:

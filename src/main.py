@@ -90,7 +90,7 @@ async def append_new_events():
                 miners[log] = Miner(log, config, ws_update_queue, events)
                 ws_updates_queue[log] = ws_update_queue
             else:
-                logging.info(f'Appending {len(events)} new event for "{log}".')
+                logging.info(f'Appending {len(events)} new events for "{log}".')
                 miners[log].append_events_to_stream(events)
 
 

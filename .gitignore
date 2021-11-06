@@ -152,3 +152,4 @@ fabric.properties
 # App Data
 /logs
 /data
+/pn_images
