@@ -30,7 +30,7 @@ def create_app() -> FastAPI:
 def add_event_to_queue(event: MqttEvent, log: str):
     if log not in new_event_queue:
         new_event_queue[log] = Queue()
-    new_event_queue[log].put(event, block=True, timeout=5)
+    new_event_queue[log].put(event)
 
 
 def discover_existing_data():
@@ -42,7 +42,7 @@ def discover_existing_data():
 
 
 app: FastAPI = create_app()
-manager = ConnectionManager()
+ws_manager = ConnectionManager()
 discover_existing_data()
 
 
@@ -71,39 +71,43 @@ async def notify(request: Request, event: MqttEvent):
         raise HTTPException(status_code=400, detail='Source value must be set')
 
     logging.info(f'Received new event notification: {event}')
+    db_helper.add_event(config['db']['address'], event)
     add_event_to_queue(event, event.source)
 
 
 @app.on_event('startup')
-@repeat_every(seconds=5, wait_first=True, raise_exceptions=True)
-async def run_miner_updates():
-    update_processes: list[Process] = []
+@repeat_every(seconds=5, wait_first=False, raise_exceptions=True)
+async def append_new_events():
+    """Append new events from the queue to the miner's live event stream."""
     for log, queue in new_event_queue.items():
         events: list[MqttEvent] = []
         while not queue.empty():
-            events.append(queue.get(block=True, timeout=1))
+            events.append(queue.get())
         if events:
             if log not in miners:
                 ws_update_queue = Queue()
+                logging.info(f'Creating new miner for "{log}" with {len(events)} initial events.')
                 miners[log] = Miner(log, config, ws_update_queue, events)
                 ws_updates_queue[log] = ws_update_queue
-                logging.info(f'Created new miner for "{log}" with {len(events)} initial events.')
-                events.clear()
+            else:
+                logging.info(f'Appending {len(events)} new event for "{log}".')
+                miners[log].append_events_to_stream(events)
 
-            logging.info(f'Starting update process for "{log}" with {len(events)} new events.')
-            process = Process(target=miners[log].update, args=(events,))
-            process.start()
-            update_processes.append(process)
 
-    for process in update_processes:
-        process.join()
+@app.on_event('startup')
+@repeat_every(seconds=10, wait_first=False, raise_exceptions=True)
+async def run_miner_updates():
+    """Periodically update the model derived from the live event stream of each miner."""
+    for log, miner in miners.items():
+        logging.debug(f'Updating model for "{log}" miner.')
+        miner.update()
 
 
 # WebSockets Part
 
 
 @app.on_event('startup')
-@repeat_every(seconds=1, wait_first=True, raise_exceptions=True)
+@repeat_every(seconds=1, wait_first=False, raise_exceptions=True)
 async def broadcast_queued_updates():
     for log, queue in ws_updates_queue.items():
         updates: list[StateUpdate] = []
@@ -113,7 +117,7 @@ async def broadcast_queued_updates():
             try:
                 for update in updates:
                     update_text = update.to_json()
-                    recipients = await manager.broadcast(update_text, log)
+                    recipients = await ws_manager.broadcast(update_text, log)
                     logging.info(f'Broadcasted update to {recipients} "{log}" clients: {update_text}')
             except Exception as e:
                 logging.error(e)
@@ -121,7 +125,7 @@ async def broadcast_queued_updates():
 
 @app.websocket('/ws/{log}')
 async def ws(websocket: WebSocket, log: str):
-    await manager.connect(websocket, log)
+    await ws_manager.connect(websocket, log)
     try:
         logging.info(f'WS connection opened with client from: {websocket.client.host}:{websocket.client.port}')
         if log not in miners.keys():
@@ -140,7 +144,7 @@ async def ws(websocket: WebSocket, log: str):
                 logging.info(f'Received stop command, closing WS connection')
                 raise WebSocketDisconnect(code=1000)
     except WebSocketDisconnect as e:
-        manager.disconnect(websocket)
+        ws_manager.disconnect(websocket)
         logging.info(f'WS connection closed with client from: {websocket.client.host}:{websocket.client.port}. Status code: {e.code}')
 
 

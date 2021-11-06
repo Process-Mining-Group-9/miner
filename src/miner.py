@@ -1,3 +1,4 @@
+import logging
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from state import StateUpdate
@@ -53,15 +54,14 @@ class Miner:
 
     def append_events_to_stream(self, events: list[MqttEvent]):
         if events:
+            logging.debug(f'Appending {len(events)} new events to stream of "{self.log_name}" miner.')
             event_stream = get_pm4py_stream(events)
             for event in event_stream:
                 self.live_event_stream.append(event)
 
-    def update(self, events: list[MqttEvent]):
-        self.append_events_to_stream(events)
-        dfg, act, sa, ea = self.streaming_dfg.get()
-        net, initial, final = inductive_miner.apply_dfg(dfg, sa, ea, act)
-        visualize_petri_net(net, initial, final)
+    def update(self):
+        dfg, activities, start_act, end_act = self.streaming_dfg.get()
+        net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
         self.create_update(net, initial, final)
 
     def latest_complete_update(self) -> StateUpdate:
