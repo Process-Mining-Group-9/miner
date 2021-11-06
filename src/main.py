@@ -14,7 +14,8 @@ import uvicorn
 import yaml
 
 miners: Dict[str, Miner] = {}
-update_queues: Dict[str, Queue] = {}
+new_event_queue: Dict[str, Queue] = {}
+ws_updates_queue: Dict[str, Queue] = {}
 config: Dict = yaml.safe_load(open('../config.yaml'))
 
 
@@ -26,23 +27,18 @@ def create_app() -> FastAPI:
     return fastapi_app
 
 
-def add_miner(name: str, existing_events: list[MqttEvent]) -> Miner:
-    """Add a miner process to the process pool."""
-    logging.info(f'Adding miner instance for log {name}')
-    update_queue = Queue()
-    miner = Miner(name, config, update_queue, existing_events)
-    process = Process(target=miner.start)
-    process.start()
-    miners[name] = miner
-    update_queues[name] = update_queue
-    return miner
+def add_event_to_queue(event: MqttEvent, log: str):
+    if log not in new_event_queue:
+        new_event_queue[log] = Queue()
+    new_event_queue[log].put(event, block=True, timeout=5)
 
 
 def discover_existing_data():
     """Query the database for existing event logs, get all of its data, and create a miner process for each event log."""
     for log in db_helper.get_existing_event_logs(config['db']['address']):
         events = db_helper.get_existing_events_of_event_log(config['db']['address'], log)
-        add_miner(log, events)
+        for event in events:
+            add_event_to_queue(event, log)
 
 
 app: FastAPI = create_app()
@@ -75,17 +71,41 @@ async def notify(request: Request, event: MqttEvent):
         raise HTTPException(status_code=400, detail='Source value must be set')
 
     logging.info(f'Received new event notification: {event}')
-    if event.source not in miners:
-        add_miner(event.source, [])
-    miners[event.source].add_event(event)
+    add_event_to_queue(event, event.source)
+
+
+@app.on_event('startup')
+@repeat_every(seconds=5, wait_first=True, raise_exceptions=True)
+async def run_miner_updates():
+    update_processes: list[Process] = []
+    for log, queue in new_event_queue.items():
+        events: list[MqttEvent] = []
+        while not queue.empty():
+            events.append(queue.get(block=True, timeout=1))
+        if events:
+            if log not in miners:
+                ws_update_queue = Queue()
+                miners[log] = Miner(log, config, ws_update_queue, events)
+                ws_updates_queue[log] = ws_update_queue
+                logging.info(f'Created new miner for "{log}" with {len(events)} initial events.')
+                events.clear()
+
+            logging.info(f'Starting update process for "{log}" with {len(events)} new events.')
+            process = Process(target=miners[log].update, args=(events,))
+            process.start()
+            update_processes.append(process)
+
+    for process in update_processes:
+        process.join()
 
 
 # WebSockets Part
 
+
 @app.on_event('startup')
 @repeat_every(seconds=1, wait_first=True, raise_exceptions=True)
 async def broadcast_queued_updates():
-    for log, queue in update_queues.items():
+    for log, queue in ws_updates_queue.items():
         updates: list[StateUpdate] = []
         while not queue.empty():
             updates.append(queue.get(block=True, timeout=1))

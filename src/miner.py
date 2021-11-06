@@ -2,8 +2,6 @@ from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from state import StateUpdate
 import pandas as pd
-import db_helper
-import logging
 import os
 
 from pm4py import format_dataframe
@@ -29,7 +27,9 @@ def export_to_plnm(net, initial, final, file: str):
 
 def get_pm4py_stream(events: list[MqttEvent]):
     """Convert a list of event to a Pandas DataFrame compatible with pm4py."""
-    # TODO: The streaming discovery doesn't like this format apparently. It doesn't add any events to the DFG.
+    if not events:
+        return None
+
     log = pd.DataFrame.from_records([e.to_min_dict() for e in events])
     log = log.sort_values(by='timestamp')
     log = format_dataframe(log, case_id='process', activity_key='activity', timestamp_key='timestamp')
@@ -48,27 +48,21 @@ class Miner:
         self.streaming_dfg = dfg_discovery.apply()
         self.live_event_stream.register(self.streaming_dfg)
         self.live_event_stream.start()
+        # Add initial events to live event stream
+        self.append_events_to_stream(self.initial_events)
 
-    def start(self):
-        """Start the mining process by discovering the Petri net."""
-        logging.info(f'"{self.log_name}" miner: Mining event log to discover Petri net.')
-        if self.initial_events:
-            event_stream = get_pm4py_stream(self.initial_events)
+    def append_events_to_stream(self, events: list[MqttEvent]):
+        if events:
+            event_stream = get_pm4py_stream(events)
             for event in event_stream:
                 self.live_event_stream.append(event)
-        self.update_petri_net()
 
-    def update_petri_net(self):
-        # self.live_event_stream.stop()  # somehow never returns. seems to be always blocked.
+    def update(self, events: list[MqttEvent]):
+        self.append_events_to_stream(events)
         dfg, act, sa, ea = self.streaming_dfg.get()
-        net, initial, final = inductive_miner.apply_dfg(dfg, act, sa, ea)
-        self.live_event_stream.start()
-
-    def add_event(self, event: MqttEvent):
-        """Append a new event to the event log and detect changes in derived Petri net."""
-        db_helper.add_event(self.config['db']['address'], event)  # Insert new event into database
-        self.update_petri_net()
-        self.create_update()
+        net, initial, final = inductive_miner.apply_dfg(dfg, sa, ea, act)
+        visualize_petri_net(net, initial, final)
+        self.create_update(net, initial, final)
 
     def latest_complete_update(self) -> StateUpdate:
         """Get an update that contains the entire Petri net model and ongoing instances.
@@ -77,7 +71,7 @@ class Miner:
         update = StateUpdate(self.log_name, [], [], [], [])
         return update
 
-    def create_update(self):
+    def create_update(self, net, initial, final):
         """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
         # TODO: Tests with broadcasting updates to WS clients
         update = StateUpdate(self.log_name, [], [], [], [])
