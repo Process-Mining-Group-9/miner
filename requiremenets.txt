@@ -9,3 +9,4 @@ pm4py==2.2.15
 multiprocessing-logging==0.3.1
 loguru==0.5.3
 jsonpickle==2.0.0
+arrow==1.2.1

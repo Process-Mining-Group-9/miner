@@ -1,8 +1,9 @@
-import logging
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from state import StateUpdate
 import pandas as pd
+import logging
+import arrow
 import os
 
 from pm4py import format_dataframe
@@ -14,10 +15,15 @@ from pm4py.objects.petri_net.exporter import exporter as pnml_exporter
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
 
 
-def visualize_petri_net(net, initial, final):
+def save_petri_net_image(net, initial, final, name: str):
     """Visualize a Petri net using graphviz (opens in local image viewer)."""
-    gviz = pn_visualizer.apply(net, initial, final)
-    pn_visualizer.view(gviz)
+    directory = '../pn_images'
+    os.makedirs(directory, exist_ok=True)
+    file = f'{directory}/{name}_{arrow.utcnow().int_timestamp}.svg'
+    logging.info(f'Saving Petri net image to file: {file}')
+    parameters = {pn_visualizer.Variants.WO_DECORATION.value.Parameters.FORMAT: "svg"}
+    gviz = pn_visualizer.apply(net, initial, final, parameters=parameters)
+    pn_visualizer.save(gviz, file)
 
 
 def export_to_plnm(net, initial, final, file: str):
@@ -60,8 +66,10 @@ class Miner:
                 self.live_event_stream.append(event)
 
     def update(self):
+        logging.info(f'Updating Petri net model for miner "{self.log_name}"')
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
+        # save_petri_net_image(net, initial, final, name=self.log_name)
         self.create_update(net, initial, final)
 
     def latest_complete_update(self) -> StateUpdate:
