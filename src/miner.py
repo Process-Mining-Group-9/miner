@@ -1,4 +1,4 @@
-from state import StateUpdate, StatePlace, StateTransition, StateEdge
+from state import State, StateUpdate, StatePlace, StateTransition, StateEdge
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from typing import Optional
@@ -83,44 +83,57 @@ class Miner:
         new_state = petri_net_to_state_update(self.log_name, n_net)
 
         if not p_net:
-            self.update_queue.put(new_state)
+            new_update_state = StateUpdate(new_state.log, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), [])
+            self.update_queue.put(new_update_state)
             self.petri_net = new
             return
 
         prev_state = petri_net_to_state_update(self.log_name, p_net)
-        # TODO
+        update_state = get_update_state(prev_state, new_state)
+        self.update_queue.put(update_state)
+        self.petri_net = new
 
-    def latest_complete_update(self) -> StateUpdate:
+    def latest_complete_update(self) -> State:
         """Get an update that contains the entire Petri net model and ongoing instances.
         This is used to send the latest state for newly connected WebSocket clients."""
         # TODO: Implement
-        update = StateUpdate(self.log_name, [], [], [], [])
+        update = State(self.log_name, set(), set(), set(), [])
         return update
 
 
 # State helper methods
 
 
-def petri_net_to_state_update(name: str, net: PetriNet) -> StateUpdate:
-    return StateUpdate(name, places_to_list(net.places), transitions_to_list(net.transitions), arcs_to_list(net.arcs), [])
+def petri_net_to_state_update(name: str, net: PetriNet) -> State:
+    return State(name, places_to_list(net.places), transitions_to_list(net.transitions), arcs_to_list(net.arcs), [])
 
 
-def places_to_list(places: set[PetriNet.Place]) -> list[StatePlace]:
-    names: list[StatePlace] = []
+def get_update_state(old: State, new: State) -> StateUpdate:
+    p_new = new.places - old.places
+    p_rem = old.places - new.places
+    t_new = new.transitions - old.transitions
+    t_rem = old.transitions - new.transitions
+    e_new = new.edges - old.edges
+    e_rem = old.edges - new.edges
+    return StateUpdate(new.log, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
+
+
+def places_to_list(places: set[PetriNet.Place]) -> set[StatePlace]:
+    names: set[StatePlace] = set()
     for p in places:
-        names.append(StatePlace(p.name))
+        names.add(StatePlace(p.name))
     return names
 
 
-def transitions_to_list(transitions: set[PetriNet.Transition]) -> list[StateTransition]:
-    names: list[StateTransition] = []
+def transitions_to_list(transitions: set[PetriNet.Transition]) -> set[StateTransition]:
+    names: set[StateTransition] = set()
     for t in transitions:
-        names.append(StateTransition(t.name, t.label))
+        names.add(StateTransition(t.name, t.label))
     return names
 
 
-def arcs_to_list(arcs: set[PetriNet.Arc]) -> list[StateEdge]:
-    names: list[StateEdge] = []
+def arcs_to_list(arcs: set[PetriNet.Arc]) -> set[StateEdge]:
+    names: set[StateEdge] = set()
     for a in arcs:
-        names.append(StateEdge(a.source.name, a.target.name))
+        names.add(StateEdge(a.source.name, a.target.name))
     return names
