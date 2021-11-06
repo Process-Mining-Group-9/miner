@@ -1,15 +1,15 @@
+import logging
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from state import StateUpdate
-from typing import Tuple
 import pandas as pd
-import db_helper
-import logging
 import os
 
 from pm4py import format_dataframe
-from pm4py.objects.conversion.log import converter as log_converter
-from pm4py.algo.discovery.alpha import algorithm as alpha_miner
+from pm4py.objects.conversion.log import converter
+from pm4py.streaming.stream.live_event_stream import LiveEventStream
+from pm4py.streaming.algo.discovery.dfg import algorithm as dfg_discovery
+from pm4py.algo.discovery.inductive import algorithm as inductive_miner
 from pm4py.objects.petri_net.exporter import exporter as pnml_exporter
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
 
@@ -26,18 +26,15 @@ def export_to_plnm(net, initial, final, file: str):
     pnml_exporter.apply(net, initial, file, final_marking=final)
 
 
-def get_pm4py_log(events: list[MqttEvent]):
+def get_pm4py_stream(events: list[MqttEvent]):
     """Convert a list of event to a Pandas DataFrame compatible with pm4py."""
+    if not events:
+        return None
+
     log = pd.DataFrame.from_records([e.to_min_dict() for e in events])
     log = log.sort_values(by='timestamp')
     log = format_dataframe(log, case_id='process', activity_key='activity', timestamp_key='timestamp')
-    return log_converter.apply(log, variant=log_converter.Variants.TO_EVENT_LOG)
-
-
-def mine_events(log) -> Tuple:
-    """Apply a mining algorithm to an event log to derive a Petri net."""
-    net, initial_marking, final_marking = alpha_miner.apply(log)
-    return net, initial_marking, final_marking
+    return converter.apply(log, variant=converter.Variants.TO_EVENT_STREAM)
 
 
 class Miner:
@@ -46,23 +43,26 @@ class Miner:
         self.log_name = log
         self.config = config
         self.update_queue = update_queue
-        self.events: list[MqttEvent] = events if events is not None else []
+        self.initial_events: list[MqttEvent] = events if events is not None else []
+        # Register live event stream and starting DFG (Directly Follows Graph) discovery
+        self.live_event_stream = LiveEventStream()
+        self.streaming_dfg = dfg_discovery.apply()
+        self.live_event_stream.register(self.streaming_dfg)
+        self.live_event_stream.start()
+        # Add initial events to live event stream
+        self.append_events_to_stream(self.initial_events)
 
-    def start(self):
-        """Start the mining process by discovering the Petri net."""
-        logging.info(f'{self.log_name} miner: Mining event log to discover Petri net.')
-        if self.events:
-            log = get_pm4py_log(self.events)
-            net, initial, final = mine_events(log)
-            # visualize_petri_net(net, initial, final)
-            # export_to_plnm(net, initial, final, f'../plnm/{self.log_name}.plnm')
+    def append_events_to_stream(self, events: list[MqttEvent]):
+        if events:
+            logging.debug(f'Appending {len(events)} new events to stream of "{self.log_name}" miner.')
+            event_stream = get_pm4py_stream(events)
+            for event in event_stream:
+                self.live_event_stream.append(event)
 
-    def add_event(self, event: MqttEvent):
-        """Append a new event to the event log and detect changes in derived Petri net."""
-        self.events.append(event)
-        db_helper.add_event(self.config['db']['address'], event)  # Insert new event into database
-        self.start()  # Temporarily re-discover model with all events until an online discovery algorithm is implemented
-        self.create_update()
+    def update(self):
+        dfg, activities, start_act, end_act = self.streaming_dfg.get()
+        net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
+        self.create_update(net, initial, final)
 
     def latest_complete_update(self) -> StateUpdate:
         """Get an update that contains the entire Petri net model and ongoing instances.
@@ -71,7 +71,7 @@ class Miner:
         update = StateUpdate(self.log_name, [], [], [], [])
         return update
 
-    def create_update(self):
+    def create_update(self, net, initial, final):
         """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
         # TODO: Tests with broadcasting updates to WS clients
         update = StateUpdate(self.log_name, [], [], [], [])

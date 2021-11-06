@@ -14,7 +14,8 @@ import uvicorn
 import yaml
 
 miners: Dict[str, Miner] = {}
-update_queues: Dict[str, Queue] = {}
+new_event_queue: Dict[str, Queue] = {}
+ws_updates_queue: Dict[str, Queue] = {}
 config: Dict = yaml.safe_load(open('../config.yaml'))
 
 
@@ -26,27 +27,22 @@ def create_app() -> FastAPI:
     return fastapi_app
 
 
-def add_miner(name: str, existing_events: list[MqttEvent]) -> Miner:
-    """Add a miner process to the process pool."""
-    logging.info(f'Adding miner instance for log {name}')
-    update_queue = Queue()
-    miner = Miner(name, config, update_queue, existing_events)
-    process = Process(target=miner.start)
-    process.start()
-    miners[name] = miner
-    update_queues[name] = update_queue
-    return miner
+def add_event_to_queue(event: MqttEvent, log: str):
+    if log not in new_event_queue:
+        new_event_queue[log] = Queue()
+    new_event_queue[log].put(event)
 
 
 def discover_existing_data():
     """Query the database for existing event logs, get all of its data, and create a miner process for each event log."""
     for log in db_helper.get_existing_event_logs(config['db']['address']):
         events = db_helper.get_existing_events_of_event_log(config['db']['address'], log)
-        add_miner(log, events)
+        for event in events:
+            add_event_to_queue(event, log)
 
 
 app: FastAPI = create_app()
-manager = ConnectionManager()
+ws_manager = ConnectionManager()
 discover_existing_data()
 
 
@@ -75,17 +71,45 @@ async def notify(request: Request, event: MqttEvent):
         raise HTTPException(status_code=400, detail='Source value must be set')
 
     logging.info(f'Received new event notification: {event}')
-    if event.source not in miners:
-        add_miner(event.source, [])
-    miners[event.source].add_event(event)
+    db_helper.add_event(config['db']['address'], event)
+    add_event_to_queue(event, event.source)
+
+
+@app.on_event('startup')
+@repeat_every(seconds=5, wait_first=False, raise_exceptions=True)
+async def append_new_events():
+    """Append new events from the queue to the miner's live event stream."""
+    for log, queue in new_event_queue.items():
+        events: list[MqttEvent] = []
+        while not queue.empty():
+            events.append(queue.get())
+        if events:
+            if log not in miners:
+                ws_update_queue = Queue()
+                logging.info(f'Creating new miner for "{log}" with {len(events)} initial events.')
+                miners[log] = Miner(log, config, ws_update_queue, events)
+                ws_updates_queue[log] = ws_update_queue
+            else:
+                logging.info(f'Appending {len(events)} new event for "{log}".')
+                miners[log].append_events_to_stream(events)
+
+
+@app.on_event('startup')
+@repeat_every(seconds=10, wait_first=False, raise_exceptions=True)
+async def run_miner_updates():
+    """Periodically update the model derived from the live event stream of each miner."""
+    for log, miner in miners.items():
+        logging.debug(f'Updating model for "{log}" miner.')
+        miner.update()
 
 
 # WebSockets Part
 
+
 @app.on_event('startup')
-@repeat_every(seconds=1, wait_first=True, raise_exceptions=True)
+@repeat_every(seconds=1, wait_first=False, raise_exceptions=True)
 async def broadcast_queued_updates():
-    for log, queue in update_queues.items():
+    for log, queue in ws_updates_queue.items():
         updates: list[StateUpdate] = []
         while not queue.empty():
             updates.append(queue.get(block=True, timeout=1))
@@ -93,7 +117,7 @@ async def broadcast_queued_updates():
             try:
                 for update in updates:
                     update_text = update.to_json()
-                    recipients = await manager.broadcast(update_text, log)
+                    recipients = await ws_manager.broadcast(update_text, log)
                     logging.info(f'Broadcasted update to {recipients} "{log}" clients: {update_text}')
             except Exception as e:
                 logging.error(e)
@@ -101,7 +125,7 @@ async def broadcast_queued_updates():
 
 @app.websocket('/ws/{log}')
 async def ws(websocket: WebSocket, log: str):
-    await manager.connect(websocket, log)
+    await ws_manager.connect(websocket, log)
     try:
         logging.info(f'WS connection opened with client from: {websocket.client.host}:{websocket.client.port}')
         if log not in miners.keys():
@@ -120,7 +144,7 @@ async def ws(websocket: WebSocket, log: str):
                 logging.info(f'Received stop command, closing WS connection')
                 raise WebSocketDisconnect(code=1000)
     except WebSocketDisconnect as e:
-        manager.disconnect(websocket)
+        ws_manager.disconnect(websocket)
         logging.info(f'WS connection closed with client from: {websocket.client.host}:{websocket.client.port}. Status code: {e.code}')
 
 
