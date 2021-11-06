@@ -1,11 +1,28 @@
 import jsonpickle
 
 
+class StatePlace(object):
+    def __init__(self, id: str):
+        self.id = id
+
+
+class StateTransition(object):
+    def __init__(self, id: str, name: str):
+        self.id = id
+        self.name = name
+
+
+class StateEdge(object):
+    def __init__(self, source: str, target: str):
+        self.source = source
+        self.target = target
+
+
 class StateUpdate(object):
-    def __init__(self, log: str, places: list, transactions: list, edges: list, markings: list):
+    def __init__(self, log: str, places: list[StatePlace], transitions: list[StateTransition], edges: list[StateEdge], markings: list):
         self.log = log
         self.places = places
-        self.transactions = transactions
+        self.transitions = transitions
         self.edges = edges
         self.markings = markings
 

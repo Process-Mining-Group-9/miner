@@ -1,6 +1,7 @@
+from state import StateUpdate, StatePlace, StateTransition, StateEdge
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
-from state import StateUpdate
+from typing import Optional
 import pandas as pd
 import logging
 import arrow
@@ -8,6 +9,7 @@ import os
 
 from pm4py import format_dataframe
 from pm4py.objects.conversion.log import converter
+from pm4py.objects.petri_net.obj import PetriNet, Marking
 from pm4py.streaming.stream.live_event_stream import LiveEventStream
 from pm4py.streaming.algo.discovery.dfg import algorithm as dfg_discovery
 from pm4py.algo.discovery.inductive import algorithm as inductive_miner
@@ -50,6 +52,7 @@ class Miner:
         self.config = config
         self.update_queue = update_queue
         self.initial_events: list[MqttEvent] = events if events is not None else []
+        self.petri_net: tuple[Optional[PetriNet], Optional[Marking], Optional[Marking]] = (None, None, None)  # Tuple of Petri net, initial marking, and final marking
         # Register live event stream and starting DFG (Directly Follows Graph) discovery
         self.live_event_stream = LiveEventStream()
         self.streaming_dfg = dfg_discovery.apply()
@@ -70,7 +73,22 @@ class Miner:
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
         # save_petri_net_image(net, initial, final, name=self.log_name)
-        self.create_update(net, initial, final)
+        self.create_update(self.petri_net, (net, initial, final))
+
+    def create_update(self, previous: tuple[Optional[PetriNet], Optional[Marking], Optional[Marking]], new: tuple[PetriNet, Marking, Marking]):
+        """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
+        p_net, p_init, p_final = previous
+        n_net, n_init, n_final = new
+
+        new_state = petri_net_to_state_update(self.log_name, n_net)
+
+        if not p_net:
+            self.update_queue.put(new_state)
+            self.petri_net = new
+            return
+
+        prev_state = petri_net_to_state_update(self.log_name, p_net)
+        # TODO
 
     def latest_complete_update(self) -> StateUpdate:
         """Get an update that contains the entire Petri net model and ongoing instances.
@@ -79,8 +97,30 @@ class Miner:
         update = StateUpdate(self.log_name, [], [], [], [])
         return update
 
-    def create_update(self, net, initial, final):
-        """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
-        # TODO: Tests with broadcasting updates to WS clients
-        update = StateUpdate(self.log_name, [], [], [], [])
-        self.update_queue.put(update, block=True, timeout=1)
+
+# State helper methods
+
+
+def petri_net_to_state_update(name: str, net: PetriNet) -> StateUpdate:
+    return StateUpdate(name, places_to_list(net.places), transitions_to_list(net.transitions), arcs_to_list(net.arcs), [])
+
+
+def places_to_list(places: set[PetriNet.Place]) -> list[StatePlace]:
+    names: list[StatePlace] = []
+    for p in places:
+        names.append(StatePlace(p.name))
+    return names
+
+
+def transitions_to_list(transitions: set[PetriNet.Transition]) -> list[StateTransition]:
+    names: list[StateTransition] = []
+    for t in transitions:
+        names.append(StateTransition(t.name, t.label))
+    return names
+
+
+def arcs_to_list(arcs: set[PetriNet.Arc]) -> list[StateEdge]:
+    names: list[StateEdge] = []
+    for a in arcs:
+        names.append(StateEdge(a.source.name, a.target.name))
+    return names
