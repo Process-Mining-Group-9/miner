@@ -84,6 +84,7 @@ async def append_new_events():
         while not queue.empty():
             events.append(queue.get())
         if events:
+            events.sort(key=lambda e: e.timestamp)
             if log not in miners:
                 ws_update_queue = Queue()
                 logging.info(f'Creating new miner for "{log}" with {len(events)} initial events.')
