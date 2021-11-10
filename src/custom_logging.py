@@ -3,6 +3,8 @@
 
 import logging
 import sys
+import os
+
 from pathlib import Path
 from loguru import logger
 
@@ -34,13 +36,13 @@ class InterceptHandler(logging.Handler):
 
 class CustomizeLogger:
     @classmethod
-    def make_logger(cls, config: dict):
+    def make_logger(cls):
         c_logger = cls.customize_logging(
-            config['path'],
-            level=config['level'],
-            retention=config['retention'],
-            rotation=config['rotation'],
-            c_format=config['format']
+            Path(os.environ['LOG_PATH']),
+            level=os.environ['LOG_LEVEL'],
+            retention=os.environ['LOG_RETENTION'],
+            rotation=os.environ['LOG_ROTATION'],
+            c_format=os.environ['LOG_FORMAT']
         )
         return c_logger
 

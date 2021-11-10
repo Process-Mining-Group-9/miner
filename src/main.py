@@ -1,28 +1,27 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi_utils.tasks import repeat_every
 from ws_connection_manager import ConnectionManager
+from fastapi_utils.tasks import repeat_every
 from custom_logging import CustomizeLogger
-from multiprocessing import Process, Queue
+from petri_net_state import PetriNetState
 from mqtt_event import MqttEvent
-from petrinetstate import PetriNetState
 from typing import Dict, List
 from miner import Miner
+from queue import Queue
 import db_helper
 import logging
 import uvicorn
-import yaml
+import os
 
 miners: Dict[str, Miner] = {}
 new_event_queue: Dict[str, Queue] = {}
 ws_updates_queue: Dict[str, Queue] = {}
-config: Dict = yaml.safe_load(open('../config.yaml'))
 
 
 def create_app() -> FastAPI:
     """Create a FastAPI instance for this application."""
     fastapi_app = FastAPI(title='Miner', debug=False)
-    custom_logger = CustomizeLogger.make_logger(config['log'])
+    custom_logger = CustomizeLogger.make_logger()
     fastapi_app.logger = custom_logger
     return fastapi_app
 
@@ -35,8 +34,8 @@ def add_event_to_queue(event: MqttEvent, log: str):
 
 def discover_existing_data():
     """Query the database for existing event logs, get all of its data, and create a miner process for each event log."""
-    for log in db_helper.get_existing_event_logs(config['db']['address']):
-        events = db_helper.get_existing_events_of_event_log(config['db']['address'], log)
+    for log in db_helper.get_existing_event_logs(os.environ['DB_ADDRESS']):
+        events = db_helper.get_existing_events_of_event_log(os.environ['DB_ADDRESS'], log)
         for event in events:
             add_event_to_queue(event, log)
 
@@ -71,7 +70,7 @@ async def notify(request: Request, event: MqttEvent):
         raise HTTPException(status_code=400, detail='Source value must be set')
 
     logging.info(f'Received new event notification: {event}')
-    db_helper.add_event(config['db']['address'], event)
+    db_helper.add_event(os.environ['DB_ADDRESS'], event)
     add_event_to_queue(event, event.source)
 
 
@@ -88,7 +87,7 @@ async def append_new_events():
             if log not in miners:
                 ws_update_queue = Queue()
                 logging.info(f'Creating new miner for "{log}" with {len(events)} initial events.')
-                miners[log] = Miner(log, config, ws_update_queue, events)
+                miners[log] = Miner(log, ws_update_queue, events)
                 ws_updates_queue[log] = ws_update_queue
             else:
                 logging.info(f'Appending {len(events)} new events for "{log}".')

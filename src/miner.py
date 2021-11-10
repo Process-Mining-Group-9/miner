@@ -1,4 +1,4 @@
-from petrinetstate import PetriNetState, Update, StatePlace, StateTransition, StateEdge
+from petri_net_state import PetriNetState, Update, StatePlace, StateTransition, StateEdge
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from typing import Optional, List, Tuple, Set
@@ -47,10 +47,9 @@ def get_pm4py_stream(events: List[MqttEvent]):
 
 
 class Miner:
-    def __init__(self, log: str, config: dict, update_queue: Queue, events: List[MqttEvent] = None):
+    def __init__(self, log: str, update_queue: Queue, events: List[MqttEvent] = None):
         """Initialize the miner with potentially existing events."""
         self.log_name = log
-        self.config = config
         self.update_queue = update_queue
         self.initial_events: List[MqttEvent] = events if events is not None else []
         self.petri_net_state: Optional[PetriNetState] = None
@@ -76,7 +75,7 @@ class Miner:
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
 
-        if self.config['miner']['save_pictures'] == 'true':
+        if os.environ['SAVE_PICTURES'] == 'True':
             save_petri_net_image(net, initial, final, name=self.log_name)
 
         self.create_update(self.petri_net_state, (net, initial, final))
