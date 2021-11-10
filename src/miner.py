@@ -1,10 +1,11 @@
-from state import State, StateUpdate, StatePlace, StateTransition, StateEdge
+from petrinetstate import PetriNetState, Update, StatePlace, StateTransition, StateEdge
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
 from typing import Optional
 import pandas as pd
 import logging
 import arrow
+import uuid
 import os
 
 from pm4py import format_dataframe
@@ -19,9 +20,9 @@ from pm4py.visualization.petri_net import visualizer as pn_visualizer
 
 def save_petri_net_image(net, initial, final, name: str):
     """Visualize a Petri net using graphviz (opens in local image viewer)."""
-    directory = '../pn_images'
+    directory = f'../pn_images/{name}'
     os.makedirs(directory, exist_ok=True)
-    file = f'{directory}/{name}_{arrow.utcnow().int_timestamp}.svg'
+    file = f'{directory}/{arrow.utcnow().int_timestamp}.svg'
     logging.info(f'Saving Petri net image to file: {file}')
     parameters = {pn_visualizer.Variants.WO_DECORATION.value.Parameters.FORMAT: "svg"}
     gviz = pn_visualizer.apply(net, initial, final, parameters=parameters)
@@ -52,7 +53,7 @@ class Miner:
         self.config = config
         self.update_queue = update_queue
         self.initial_events: list[MqttEvent] = events if events is not None else []
-        self.petri_net: tuple[Optional[PetriNet], Optional[Marking], Optional[Marking]] = (None, None, None)  # Tuple of Petri net, initial marking, and final marking
+        self.petri_net_state: Optional[PetriNetState] = None
         # Register live event stream and starting DFG (Directly Follows Graph) discovery
         self.live_event_stream = LiveEventStream()
         self.streaming_dfg = dfg_discovery.apply()
@@ -78,49 +79,63 @@ class Miner:
         if self.config['miner']['save_pictures'] == 'true':
             save_petri_net_image(net, initial, final, name=self.log_name)
 
-        self.create_update(self.petri_net, (net, initial, final))
+        self.create_update(self.petri_net_state, (net, initial, final))
 
-    def create_update(self, previous: tuple[Optional[PetriNet], Optional[Marking], Optional[Marking]], new: tuple[PetriNet, Marking, Marking]):
+    def create_update(self, prev_state: Optional[PetriNetState], new_petri_net: tuple[PetriNet, Marking, Marking]):
         """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
-        p_net, p_init, p_final = previous
-        n_net, n_init, n_final = new
+        n_net, n_init, n_final = new_petri_net
 
-        new_state = petri_net_to_state_update(self.log_name, n_net)
+        new_state = get_petri_net_state(self.log_name, n_net)
 
-        if not p_net:
-            new_update_state = StateUpdate(new_state.log, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), [])
+        if not prev_state:
+            new_update_state = Update(new_state.log, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), [])
             self.update_queue.put(new_update_state)
-            self.petri_net = new
+            self.petri_net_state = new_state
             return
 
-        prev_state = petri_net_to_state_update(self.log_name, p_net)
-        update_state = get_update_state(prev_state, new_state)
+        update_state = get_update(prev_state, new_state)
 
         if update_state.is_not_empty():
             self.update_queue.put(update_state)
+            self.update_internal_state(prev_state, new_state)
         else:
             logging.info(f'No changes detected in model for miner "{self.log_name}".')
 
-        self.petri_net = new
+    def update_internal_state(self, old: PetriNetState, new: PetriNetState) -> None:
+        """Update the internal state, keeping original ID's of transitions and edges intact."""
+        self.petri_net_state.places = new.places
+        self.petri_net_state.markings = new.markings
 
-    def latest_complete_update(self) -> StateUpdate:
+        for new_t in new.transitions:
+            matching = next((t for t in old.transitions if t == new_t), None)
+            if matching:
+                new_t.id = matching.id
+        self.petri_net_state.transitions = new.transitions
+
+        for new_e in new.edges:
+            matching = next((e for e in old.edges if e == new_e), None)
+            if matching:
+                new_e.id = matching.id
+        self.petri_net_state.edges = new.edges
+
+    def latest_complete_update(self) -> Update:
         """Get an update that contains the entire Petri net model and ongoing instances.
         This is used to send the latest state for newly connected WebSocket clients."""
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
-        state = petri_net_to_state_update(self.log_name, net)
-        return StateUpdate(self.log_name, state.places, set(), state.transitions, set(), state.edges, set(), [])
+        return Update(self.log_name, self.petri_net_state.places, set(), self.petri_net_state.transitions, set(),
+                      self.petri_net_state.edges, set(), [])
 
 
 # State helper methods
 
 
-def petri_net_to_state_update(name: str, net: PetriNet) -> State:
+def get_petri_net_state(name: str, net: PetriNet) -> PetriNetState:
     """Convert a Petri net to a simple state object."""
-    return State(name, places_to_set(net.places), transitions_to_set(net.transitions), arcs_to_set(net.arcs), [])
+    return PetriNetState(name, places_to_set(net.places), transitions_to_set(net.transitions), arcs_to_set(net.arcs), [])
 
 
-def get_update_state(old: State, new: State) -> StateUpdate:
+def get_update(old: PetriNetState, new: PetriNetState) -> Update:
     """Compare two states and determine what is new and what needs to be removed."""
     p_new = new.places - old.places
     p_rem = old.places - new.places
@@ -128,7 +143,7 @@ def get_update_state(old: State, new: State) -> StateUpdate:
     t_rem = old.transitions - new.transitions
     e_new = new.edges - old.edges
     e_rem = old.edges - new.edges
-    return StateUpdate(new.log, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
+    return Update(new.log, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
 
 
 def places_to_set(places: set[PetriNet.Place]) -> set[StatePlace]:
@@ -143,7 +158,7 @@ def transitions_to_set(transitions: set[PetriNet.Transition]) -> set[StateTransi
     """Convert a set of transitions of a Petri net to a simple set."""
     names: set[StateTransition] = set()
     for t in transitions:
-        names.add(StateTransition(t.label if t.label else t.name))
+        names.add(StateTransition(str(uuid.uuid4()), t.label if t.label else t.name))
     return names
 
 
@@ -162,5 +177,5 @@ def arcs_to_set(arcs: set[PetriNet.Arc]) -> set[StateEdge]:
         elif type(a.target) is PetriNet.Transition:
             target = a.target.label if a.target.label else a.target.name
 
-        names.add(StateEdge(source, target))
+        names.add(StateEdge(str(uuid.uuid4()), source, target))
     return names

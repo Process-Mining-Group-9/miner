@@ -17,7 +17,8 @@ class StatePlace(object):
 
 
 class StateTransition(object):
-    def __init__(self, name: str):
+    def __init__(self, id: str, name: str):
+        self.id = id
         self.name = name
 
     def __eq__(self, other):
@@ -28,11 +29,12 @@ class StateTransition(object):
 
     def __hash__(self):
         """Overrides the default implementation"""
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(self.name)
 
 
 class StateEdge(object):
-    def __init__(self, source: str, target: str):
+    def __init__(self, id: str, source: str, target: str):
+        self.id = id
         self.source = source
         self.target = target
 
@@ -44,10 +46,10 @@ class StateEdge(object):
 
     def __hash__(self):
         """Overrides the default implementation"""
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash((self.source, self.target))
 
 
-class State(object):
+class PetriNetState(object):
     def __init__(self, log: str, places: set[StatePlace], transitions: set[StateTransition], edges: set[StateEdge], markings: list):
         self.log = log
         self.places = places
@@ -57,7 +59,7 @@ class State(object):
 
     def __eq__(self, other):
         """Overrides the default implementation"""
-        if isinstance(other, State):
+        if isinstance(other, PetriNetState):
             return self.log == other.log and self.places == other.places and self.transitions == other.transitions and \
                    self.edges == other.edges and self.markings == other.markings
         return NotImplemented
@@ -75,7 +77,7 @@ class State(object):
         return jsonpickle.encode(self, unpicklable=False)
 
 
-class StateUpdate(object):
+class Update(object):
     def __init__(self, log: str, new_places: set[StatePlace], removed_places: set[StatePlace],
                  new_transitions: set[StateTransition], removed_transitions: set[StateTransition],
                  new_edges: set[StateEdge], removed_edges: set[StateEdge],

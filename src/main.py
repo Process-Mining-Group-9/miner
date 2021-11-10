@@ -5,7 +5,7 @@ from ws_connection_manager import ConnectionManager
 from custom_logging import CustomizeLogger
 from multiprocessing import Process, Queue
 from mqtt_event import MqttEvent
-from state import State
+from petrinetstate import PetriNetState
 from typing import Dict
 from miner import Miner
 import db_helper
@@ -110,7 +110,7 @@ async def run_miner_updates():
 @repeat_every(seconds=1, wait_first=False, raise_exceptions=True)
 async def broadcast_queued_updates():
     for log, queue in ws_updates_queue.items():
-        updates: list[State] = []
+        updates: list[PetriNetState] = []
         while not queue.empty():
             updates.append(queue.get(block=True, timeout=1))
         if updates:
