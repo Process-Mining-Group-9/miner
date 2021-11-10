@@ -1,1 +1,1 @@
-web: pip install -U pm4py && cd ./src && gunicorn -w 4 -k uvicorn.workers.UvicornWorker
+web: pip install -U pm4py && cd ./src && gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
