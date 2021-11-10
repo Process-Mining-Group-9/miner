@@ -1,1 +1,1 @@
-web: pip install -U pm4py && cd ./src && uvicorn main:app --port 8001 --access-log
+web: pip install -U pm4py && cd ./src && gunicorn -w 4 -k uvicorn.workers.UvicornWorker
