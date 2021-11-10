@@ -121,8 +121,6 @@ class Miner:
     def latest_complete_update(self) -> Update:
         """Get an update that contains the entire Petri net model and ongoing instances.
         This is used to send the latest state for newly connected WebSocket clients."""
-        dfg, activities, start_act, end_act = self.streaming_dfg.get()
-        net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
         return Update(self.log_name, self.petri_net_state.places, set(), self.petri_net_state.transitions, set(),
                       self.petri_net_state.edges, set(), [])
 
