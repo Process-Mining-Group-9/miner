@@ -6,7 +6,7 @@ from custom_logging import CustomizeLogger
 from multiprocessing import Process, Queue
 from mqtt_event import MqttEvent
 from petrinetstate import PetriNetState
-from typing import Dict
+from typing import Dict, List
 from miner import Miner
 import db_helper
 import logging
@@ -80,7 +80,7 @@ async def notify(request: Request, event: MqttEvent):
 async def append_new_events():
     """Append new events from the queue to the miner's live event stream."""
     for log, queue in new_event_queue.items():
-        events: list[MqttEvent] = []
+        events: List[MqttEvent] = []
         while not queue.empty():
             events.append(queue.get())
         if events:
@@ -111,7 +111,7 @@ async def run_miner_updates():
 @repeat_every(seconds=1, wait_first=False, raise_exceptions=True)
 async def broadcast_queued_updates():
     for log, queue in ws_updates_queue.items():
-        updates: list[PetriNetState] = []
+        updates: List[PetriNetState] = []
         while not queue.empty():
             updates.append(queue.get(block=True, timeout=1))
         if updates:

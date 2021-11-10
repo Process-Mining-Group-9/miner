@@ -1,7 +1,7 @@
 from petrinetstate import PetriNetState, Update, StatePlace, StateTransition, StateEdge
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
-from typing import Optional
+from typing import Optional, List, Tuple, Set
 import pandas as pd
 import logging
 import arrow
@@ -35,7 +35,7 @@ def export_to_plnm(net, initial, final, file: str):
     pnml_exporter.apply(net, initial, file, final_marking=final)
 
 
-def get_pm4py_stream(events: list[MqttEvent]):
+def get_pm4py_stream(events: List[MqttEvent]):
     """Convert a list of event to a Pandas DataFrame compatible with pm4py."""
     if not events:
         return None
@@ -47,12 +47,12 @@ def get_pm4py_stream(events: list[MqttEvent]):
 
 
 class Miner:
-    def __init__(self, log: str, config: dict, update_queue: Queue, events: list[MqttEvent] = None):
+    def __init__(self, log: str, config: dict, update_queue: Queue, events: List[MqttEvent] = None):
         """Initialize the miner with potentially existing events."""
         self.log_name = log
         self.config = config
         self.update_queue = update_queue
-        self.initial_events: list[MqttEvent] = events if events is not None else []
+        self.initial_events: List[MqttEvent] = events if events is not None else []
         self.petri_net_state: Optional[PetriNetState] = None
         # Register live event stream and starting DFG (Directly Follows Graph) discovery
         self.live_event_stream = LiveEventStream()
@@ -62,7 +62,7 @@ class Miner:
         # Add initial events to live event stream
         self.append_events_to_stream(self.initial_events)
 
-    def append_events_to_stream(self, events: list[MqttEvent]):
+    def append_events_to_stream(self, events: List[MqttEvent]):
         """Append new events to the live event stream"""
         if events:
             logging.debug(f'Appending {len(events)} new events to stream of "{self.log_name}" miner.')
@@ -81,7 +81,7 @@ class Miner:
 
         self.create_update(self.petri_net_state, (net, initial, final))
 
-    def create_update(self, prev_state: Optional[PetriNetState], new_petri_net: tuple[PetriNet, Marking, Marking]):
+    def create_update(self, prev_state: Optional[PetriNetState], new_petri_net: Tuple[PetriNet, Marking, Marking]):
         """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
         n_net, n_init, n_final = new_petri_net
 
@@ -144,25 +144,25 @@ def get_update(old: PetriNetState, new: PetriNetState) -> Update:
     return Update(new.log, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
 
 
-def places_to_set(places: set[PetriNet.Place]) -> set[StatePlace]:
+def places_to_set(places: Set[PetriNet.Place]) -> Set[StatePlace]:
     """Convert a set of places of a Petri net to a simple set."""
-    names: set[StatePlace] = set()
+    names: Set[StatePlace] = set()
     for p in places:
         names.add(StatePlace(p.name))
     return names
 
 
-def transitions_to_set(transitions: set[PetriNet.Transition]) -> set[StateTransition]:
+def transitions_to_set(transitions: Set[PetriNet.Transition]) -> Set[StateTransition]:
     """Convert a set of transitions of a Petri net to a simple set."""
-    names: set[StateTransition] = set()
+    names: Set[StateTransition] = set()
     for t in transitions:
         names.add(StateTransition(str(uuid.uuid4()), t.label if t.label else t.name))
     return names
 
 
-def arcs_to_set(arcs: set[PetriNet.Arc]) -> set[StateEdge]:
+def arcs_to_set(arcs: Set[PetriNet.Arc]) -> Set[StateEdge]:
     """Convert a set of transitions of a Petri net to a simple set."""
-    names: set[StateEdge] = set()
+    names: Set[StateEdge] = set()
     for a in arcs:
         source, target = '', ''
         if type(a.source) is PetriNet.Place:

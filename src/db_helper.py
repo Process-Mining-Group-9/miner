@@ -1,10 +1,12 @@
+from typing import List
+
 from mqtt_event import MqttEvent
 import logging
 import httpx
 import json
 
 
-def get_existing_event_logs(db_address: str) -> list[str]:
+def get_existing_event_logs(db_address: str) -> List[str]:
     try:
         events_result = httpx.get(db_address + '/events')
         if events_result.is_success:
@@ -18,11 +20,11 @@ def get_existing_event_logs(db_address: str) -> list[str]:
         return []
 
 
-def get_existing_events_of_event_log(db_address: str, event_log: str) -> list[MqttEvent]:
+def get_existing_events_of_event_log(db_address: str, event_log: str) -> List[MqttEvent]:
     try:
         result = httpx.get(db_address + f'/events/{event_log}')
         if result.is_success:
-            events: list[MqttEvent] = json.loads(result.text, object_hook=lambda d: MqttEvent(**d))
+            events: List[MqttEvent] = json.loads(result.text, object_hook=lambda d: MqttEvent(**d))
             logging.info(f'Loaded {len(events)} entries from DB for event log {event_log}')
             return events
         else:

@@ -1,4 +1,5 @@
 import jsonpickle
+from typing import Set
 
 
 class StatePlace(object):
@@ -50,7 +51,7 @@ class StateEdge(object):
 
 
 class PetriNetState(object):
-    def __init__(self, log: str, places: set[StatePlace], transitions: set[StateTransition], edges: set[StateEdge], markings: list):
+    def __init__(self, log: str, places: Set[StatePlace], transitions: Set[StateTransition], edges: Set[StateEdge], markings: list):
         self.log = log
         self.places = places
         self.transitions = transitions
@@ -78,9 +79,9 @@ class PetriNetState(object):
 
 
 class Update(object):
-    def __init__(self, log: str, new_places: set[StatePlace], removed_places: set[StatePlace],
-                 new_transitions: set[StateTransition], removed_transitions: set[StateTransition],
-                 new_edges: set[StateEdge], removed_edges: set[StateEdge],
+    def __init__(self, log: str, new_places: Set[StatePlace], removed_places: Set[StatePlace],
+                 new_transitions: Set[StateTransition], removed_transitions: Set[StateTransition],
+                 new_edges: Set[StateEdge], removed_edges: Set[StateEdge],
                  markings: list):
         self.log = log
         self.new_places = new_places
