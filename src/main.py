@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from ws_connection_manager import ConnectionManager
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.tasks import repeat_every
 from custom_logging import CustomizeLogger
 from petri_net_state import PetriNetState
@@ -11,7 +12,6 @@ from queue import Queue
 import db_helper
 import logging
 import uvicorn
-import json
 import os
 
 miners: Dict[str, Miner] = {}
@@ -24,6 +24,7 @@ def create_app() -> FastAPI:
     fastapi_app = FastAPI(title='Miner', debug=False)
     custom_logger = CustomizeLogger.make_logger()
     fastapi_app.logger = custom_logger
+    fastapi_app.add_middleware(CORSMiddleware, allow_credentials=True,  allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
     return fastapi_app
 
 
@@ -60,7 +61,6 @@ async def logs(request: Request):
     return JSONResponse(list(miners.keys()))
 
 
-# TODO: Restrict access to only localhost
 @app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
