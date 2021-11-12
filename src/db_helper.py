@@ -4,6 +4,7 @@ from mqtt_event import MqttEvent
 import logging
 import httpx
 import json
+import os
 
 
 def get_existing_event_logs(db_address: str) -> List[str]:
@@ -36,7 +37,7 @@ def get_existing_events_of_event_log(db_address: str, event_log: str) -> List[Mq
 
 def add_event(db_address: str, event: MqttEvent):
     try:
-        result = httpx.post(db_address + '/events/add', json=event.to_dict())
+        result = httpx.post(db_address + '/events/add', json=event.to_dict(), headers={'X-Secret': os.environ['SECRET']})
         if not result.is_success:
             raise Exception(f'Couldn\t add new event to DB. Status: {result}')
     except Exception as e:
