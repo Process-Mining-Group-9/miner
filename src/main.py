@@ -11,6 +11,7 @@ from queue import Queue
 import db_helper
 import logging
 import uvicorn
+import json
 import os
 
 miners: Dict[str, Miner] = {}
@@ -63,7 +64,7 @@ async def logs(request: Request):
 @app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
-    if request.client.host not in ('127.0.0.1', 'localhost'):
+    if request.client.host not in json.loads(os.environ['ALLOWED_NOTIFIERS']):
         raise HTTPException(status_code=403, detail='Remote access to this endpoint is not allowed.')
 
     if not event.source:
