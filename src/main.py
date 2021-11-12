@@ -64,9 +64,8 @@ async def logs(request: Request):
 @app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
-    if request.client.host not in json.loads(os.environ['ALLOWED_NOTIFIERS']):
-        raise HTTPException(status_code=403, detail=f'Remote access to this endpoint ({request.client.host}) is not '
-                                                    f'allowed. Allowed: {os.environ["ALLOWED_NOTIFIERS"]}')
+    if request.headers['X-Secret'] != os.environ['SECRET']:
+        raise HTTPException(status_code=403, detail=f'Access denied. Secret did not match.')
 
     if not event.source:
         raise HTTPException(status_code=400, detail='Source value must be set')
