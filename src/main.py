@@ -64,7 +64,7 @@ async def logs(request: Request):
 @app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
-    if request.headers['X-Secret'] != os.environ['SECRET']:
+    if 'X-Secret' not in request.headers.keys() or request.headers['X-Secret'] != os.environ['SECRET']:
         raise HTTPException(status_code=403, detail=f'Access denied. Secret did not match.')
 
     if not event.source:
