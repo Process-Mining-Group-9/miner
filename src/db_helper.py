@@ -9,7 +9,7 @@ import os
 
 def get_existing_event_logs(db_address: str) -> List[str]:
     try:
-        events_result = httpx.get(db_address + '/events')
+        events_result = httpx.get(db_address + '/events', timeout=60)  # High timeout because the DB service might be idle
         if events_result.is_success:
             logs = json.loads(events_result.text)
             logging.info(f'Existing event logs in database: {logs}')
