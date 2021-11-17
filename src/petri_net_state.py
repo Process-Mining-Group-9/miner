@@ -51,8 +51,8 @@ class StateEdge(object):
 
 
 class PetriNetState(object):
-    def __init__(self, log: str, places: Set[StatePlace], transitions: Set[StateTransition], edges: Set[StateEdge], markings: list):
-        self.log = log
+    def __init__(self, id: str, places: Set[StatePlace], transitions: Set[StateTransition], edges: Set[StateEdge], markings: list):
+        self.id = id
         self.places = places
         self.transitions = transitions
         self.edges = edges
@@ -61,7 +61,7 @@ class PetriNetState(object):
     def __eq__(self, other):
         """Overrides the default implementation"""
         if isinstance(other, PetriNetState):
-            return self.log == other.log and self.places == other.places and self.transitions == other.transitions and \
+            return self.id == other.id and self.places == other.places and self.transitions == other.transitions and \
                    self.edges == other.edges and self.markings == other.markings
         return NotImplemented
 
@@ -79,11 +79,11 @@ class PetriNetState(object):
 
 
 class Update(object):
-    def __init__(self, log: str, new_places: Set[StatePlace], removed_places: Set[StatePlace],
+    def __init__(self, id: str, new_places: Set[StatePlace], removed_places: Set[StatePlace],
                  new_transitions: Set[StateTransition], removed_transitions: Set[StateTransition],
                  new_edges: Set[StateEdge], removed_edges: Set[StateEdge],
                  markings: list):
-        self.log = log
+        self.id = id
         self.new_places = new_places
         self.new_transitions = new_transitions
         self.new_edges = new_edges
@@ -95,7 +95,7 @@ class Update(object):
     @classmethod
     def from_json(cls, json_str: str):
         d = jsonpickle.decode(json_str)
-        return cls(d['log'], d['new_places'], d['removed_places'], d['new_transactions'], d['removed_transactions'],
+        return cls(d['id'], d['new_places'], d['removed_places'], d['new_transactions'], d['removed_transactions'],
                    d['new_edges'], d['removed_edges'], d['markings'])
 
     def to_json(self) -> str:

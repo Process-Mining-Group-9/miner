@@ -87,7 +87,7 @@ class Miner:
         new_state = get_petri_net_state(self.log_name, n_net)
 
         if not prev_state:
-            new_update_state = Update(new_state.log, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), [])
+            new_update_state = Update(new_state.id, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), [])
             self.update_queue.put(new_update_state)
             self.petri_net_state = new_state
             return
@@ -140,7 +140,7 @@ def get_update(old: PetriNetState, new: PetriNetState) -> Update:
     t_rem = old.transitions - new.transitions
     e_new = new.edges - old.edges
     e_rem = old.edges - new.edges
-    return Update(new.log, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
+    return Update(new.id, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
 
 
 def places_to_set(places: Set[PetriNet.Place]) -> Set[StatePlace]:
