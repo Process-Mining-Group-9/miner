@@ -64,8 +64,8 @@ async def logs(request: Request):
 @app.post('/notify')
 async def notify(request: Request, event: MqttEvent):
     """Notify a miner of a new event, and create a new miner if the event log hasn't been encountered yet."""
-    if 'X-Secret' not in request.headers.keys() or request.headers['X-Secret'] != os.environ['SECRET']:
-        raise HTTPException(status_code=403, detail=f'Access denied. Secret did not match. Received: "{request.headers["X-Secret"] if "X-Secret" in request.headers.keys() else ""}", Expected: "{os.environ["SECRET"]}"')
+    if 'x-secret' not in request.headers.keys() or request.headers['x-secret'] != os.environ['SECRET']:
+        raise HTTPException(status_code=403, detail=f'Access denied. Secret did not match. Received: "{request.headers["x-xecret"] if "x-secret" in request.headers.keys() else ""}", Expected: "{os.environ["SECRET"]}"')
 
     if not event.source:
         raise HTTPException(status_code=400, detail='Source value must be set')
