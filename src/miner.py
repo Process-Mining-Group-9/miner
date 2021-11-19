@@ -71,7 +71,6 @@ class Miner:
 
     def update(self):
         """Update the Petri net and broadcast any changes to the WebSocket clients"""
-        logging.info(f'Updating Petri net model for miner "{self.log_name}".')
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
 
@@ -97,13 +96,17 @@ class Miner:
         if update_state.is_not_empty():
             self.update_queue.put(update_state)
             self.update_internal_state(prev_state, new_state)
-        else:
-            logging.info(f'No changes detected in model for miner "{self.log_name}".')
 
     def update_internal_state(self, old: PetriNetState, new: PetriNetState) -> None:
         """Update the internal state, keeping original ID's of transitions and edges intact."""
         self.petri_net_state.places = new.places
         self.petri_net_state.markings = new.markings
+
+        for new_p in new.places:
+            matching = next((p for p in old.places if p == new_p), None)
+            if matching:
+                new_p.id = matching.id
+        self.petri_net_state.places = new.places
 
         for new_t in new.transitions:
             matching = next((t for t in old.transitions if t == new_t), None)
@@ -147,7 +150,7 @@ def places_to_set(places: Set[PetriNet.Place]) -> Set[StatePlace]:
     """Convert a set of places of a Petri net to a simple set."""
     names: Set[StatePlace] = set()
     for p in places:
-        names.add(StatePlace(p.name))
+        names.add(StatePlace(str(uuid.uuid4()), p.name))
     return names
 
 

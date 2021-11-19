@@ -3,18 +3,19 @@ from typing import Set
 
 
 class StatePlace(object):
-    def __init__(self, id: str):
+    def __init__(self, id: str, name: str):
         self.id = id
+        self.name = name
 
     def __eq__(self, other):
         """Overrides the default implementation"""
         if isinstance(other, StatePlace):
-            return self.id == other.id and self.id == other.id
+            return self.name == other.name
         return NotImplemented
 
     def __hash__(self):
         """Overrides the default implementation"""
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(self.name)
 
 
 class StateTransition(object):
