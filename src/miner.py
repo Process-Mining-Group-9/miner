@@ -1,7 +1,8 @@
 from petri_net_state import PetriNetState, Update, StatePlace, StateTransition, StateEdge
+from typing import Optional, List, Tuple, Set, Dict
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
-from typing import Optional, List, Tuple, Set, Dict
+from pandas import DataFrame
 import pandas as pd
 import logging
 import arrow
@@ -14,6 +15,7 @@ from pm4py.objects.petri_net.obj import PetriNet, Marking
 from pm4py.streaming.stream.live_event_stream import LiveEventStream
 from pm4py.streaming.algo.discovery.dfg import algorithm as dfg_discovery
 from pm4py.algo.discovery.inductive import algorithm as inductive_miner
+from pm4py.algo.conformance.tokenreplay import algorithm as token_replay
 from pm4py.objects.petri_net.exporter import exporter as pnml_exporter
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
 
@@ -40,7 +42,7 @@ def get_pm4py_stream(events: List[MqttEvent]):
     if not events:
         return None
 
-    log = pd.DataFrame.from_records([e.to_min_dict() for e in events])
+    log = DataFrame.from_records([e.to_min_dict() for e in events])
     log = log.sort_values(by='timestamp')
     log = format_dataframe(log, case_id='process', activity_key='activity', timestamp_key='timestamp')
     return converter.apply(log, variant=converter.Variants.TO_EVENT_STREAM)
@@ -51,19 +53,17 @@ class Miner:
         """Initialize the miner with potentially existing events."""
         self.log_name = log
         self.update_queue = update_queue
-        self.initial_events: List[MqttEvent] = events if events is not None else []
+        self.events: List[MqttEvent] = events if events is not None else []
         self.petri_net_state: Optional[PetriNetState] = None
-        # Keeping track of events for each process instance to track markings
-        self.process_instances: Dict[str, List[str]] = {}
         # Register live event stream and starting DFG (Directly Follows Graph) discovery
         self.live_event_stream = LiveEventStream()
         self.streaming_dfg = dfg_discovery.apply()
         self.live_event_stream.register(self.streaming_dfg)
         self.live_event_stream.start()
         # Add initial events to live event stream
-        self.append_events_to_stream(self.initial_events)
+        self.append_events_to_stream(self.events, False)
 
-    def append_events_to_stream(self, events: List[MqttEvent]):
+    def append_events_to_stream(self, events: List[MqttEvent], new: bool):
         """Append new events to the live event stream"""
         if events:
             logging.debug(f'Appending {len(events)} new events to stream of "{self.log_name}" miner.')
@@ -71,11 +71,9 @@ class Miner:
             for event in event_stream:
                 self.live_event_stream.append(event)
 
-            for event in events:
-                if event.process not in self.process_instances.keys():
-                    self.process_instances[event.process] = [event.activity]
-                else:
-                    self.process_instances[event.process].append(event.activity)
+        if new:
+            for e in events:
+                self.events.append(e)
 
     def update(self):
         """Update the Petri net and broadcast any changes to the WebSocket clients"""
@@ -91,7 +89,10 @@ class Miner:
         """Compare the previous Petri net and instances to the new one, and send updates to the update queue."""
         n_net, n_init, n_final = new_petri_net
 
-        new_state = get_petri_net_state(self.log_name, n_net, self.process_instances)
+        stream = get_pm4py_stream(self.events)
+        replayed_traces = token_replay.apply(stream, n_net, n_init, n_final)
+
+        new_state = PetriNetState(self.log_name, places_to_set(n_net.places), transitions_to_set(n_net.transitions), arcs_to_set(n_net.arcs), {})
 
         if not prev_state:
             new_update_state = Update(new_state.id, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), new_state.markings)
@@ -100,7 +101,6 @@ class Miner:
             return
 
         update_state = get_update(prev_state, new_state)
-        update_state.markings = get_markings(n_net, self.process_instances)
 
         if update_state.is_not_empty():
             self.update_queue.put(update_state)
@@ -139,11 +139,6 @@ class Miner:
 # State helper methods
 
 
-def get_petri_net_state(name: str, net: PetriNet, instances: Dict[str, List[str]]) -> PetriNetState:
-    """Convert a Petri net to a simple state object."""
-    return PetriNetState(name, places_to_set(net.places), transitions_to_set(net.transitions), arcs_to_set(net.arcs), get_markings(net, instances))
-
-
 def get_update(old: PetriNetState, new: PetriNetState) -> Update:
     """Compare two states and determine what is new and what needs to be removed."""
     p_new = new.places - old.places
@@ -153,30 +148,6 @@ def get_update(old: PetriNetState, new: PetriNetState) -> Update:
     e_new = new.edges - old.edges
     e_rem = old.edges - new.edges
     return Update(new.id, p_new, p_rem, t_new, t_rem, e_new, e_rem, {})
-
-
-def get_markings(net: PetriNet, instances: Dict[str, List[str]]) -> Dict[str, Set[str]]:
-    markings: Dict[str, Set[str]] = {}
-    for process_id, events in instances.items():
-        current_markings: Set[str] = {'source'}  # Always start with one token in the source/start place
-        for event in events:
-            t: Optional[PetriNet.Transition] = next((t for t in net.transitions if t.label == event), None)
-            if t is None:
-                logging.warning(f'Could not find transition {event} in mined model. It might not have been mined yet.')
-                markings[process_id] = current_markings
-                break
-
-            for in_arc in t.in_arcs:  # Remove tokens from incoming arches
-                if in_arc.source.name not in current_markings:
-                    logging.error(f'Tried to fire transition {event}, but the in_arc {in_arc.source} is not in the current markings: {current_markings}')
-                    return {}
-                current_markings.remove(in_arc.source.name)
-
-            for out_arc in t.out_arcs:  # Add tokens to outgoing arches
-                current_markings.add(out_arc.target.name)
-
-        markings[process_id] = current_markings
-    return markings
 
 
 def places_to_set(places: Set[PetriNet.Place]) -> Set[StatePlace]:
