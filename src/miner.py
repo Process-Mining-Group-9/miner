@@ -1,7 +1,7 @@
 from petri_net_state import PetriNetState, Update, StatePlace, StateTransition, StateEdge
+from typing import Optional, List, Tuple, Set, Union
 from multiprocessing import Queue
 from mqtt_event import MqttEvent
-from typing import Optional, List, Tuple, Set
 import pandas as pd
 import logging
 import arrow
@@ -13,6 +13,7 @@ from pm4py.objects.conversion.log import converter
 from pm4py.objects.petri_net.obj import PetriNet, Marking
 from pm4py.streaming.stream.live_event_stream import LiveEventStream
 from pm4py.streaming.algo.discovery.dfg import algorithm as dfg_discovery
+from pm4py.algo.conformance.tokenreplay import algorithm as token_replay
 from pm4py.algo.discovery.inductive import algorithm as inductive_miner
 from pm4py.objects.petri_net.exporter import exporter as pnml_exporter
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
@@ -69,10 +70,21 @@ class Miner:
             for event in event_stream:
                 self.live_event_stream.append(event)
 
+    def get_petri_net(self) -> Tuple[PetriNet, Marking, Marking]:
+        dfg, activities, start_act, end_act = self.streaming_dfg.get()
+        return inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
+
+    def conformance_check(self, events: List[str]):
+        net, initial, final = self.get_petri_net()
+        df = pd.DataFrame.from_records([{'process': 'p1', 'activity': e, 'timestamp': i} for i, e in enumerate(events)])
+        df = format_dataframe(df, case_id='process', activity_key='activity', timestamp_key='timestamp')
+        log = converter.apply(df, variant=converter.Variants.TO_EVENT_LOG)
+        replayed_traces = token_replay.apply(log, net, initial, final)
+        return replayed_traces
+
     def update(self):
         """Update the Petri net and broadcast any changes to the WebSocket clients"""
-        dfg, activities, start_act, end_act = self.streaming_dfg.get()
-        net, initial, final = inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
+        net, initial, final = self.get_petri_net()
 
         if os.environ['SAVE_PICTURES'] == 'True':
             save_petri_net_image(net, initial, final, name=self.log_name)
