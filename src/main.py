@@ -68,11 +68,36 @@ async def notify(request: Request, event: MqttEvent):
         raise HTTPException(status_code=403, detail=f'Access denied. Secret did not match.')
 
     if not event.source:
-        raise HTTPException(status_code=400, detail='Source value must be set')
+        raise HTTPException(status_code=400, detail='Source value must be set.')
 
     logging.info(f'Received new event notification: {event}')
     db_helper.add_event(os.environ['DB_ADDRESS'], event)
     add_event_to_queue(event, event.source)
+
+
+@app.post('/conformance/{log}')
+async def conformance_check(request: Request, log: str, events: List[str]):
+    if log not in miners.keys():
+        raise HTTPException(status_code=404, detail=f'No miner with name "{log}" found.')
+
+    replay = miners[log].conformance_check(events)[0]
+
+    def t_names(tr: List) -> List[str]:
+        return [t.label if t.label else t.name for t in tr]
+
+    is_fit = 'trace_is_fit'
+    fitness = 'trace_fitness'
+    transitions = 'activated_transitions'
+    reached = 'reached_marking'
+    enabled = 'enabled_transitions_in_marking'
+    problems = 'transitions_with_problems'
+    missing = 'missing_tokens'
+    consumed = 'consumed_tokens'
+    remaining = 'remaining_tokens'
+    produced = 'produced_tokens'
+    return {is_fit: replay[is_fit], fitness: replay[fitness], transitions: t_names(replay[transitions]),
+            reached: [m.name for m in replay[reached]], enabled: t_names(replay[enabled]), problems: t_names(replay[problems]),
+            missing: replay[missing], consumed: replay[consumed], remaining: replay[remaining], produced: replay[produced]}
 
 
 @app.on_event('startup')
