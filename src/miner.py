@@ -113,7 +113,7 @@ class Miner:
         new_state = get_petri_net_state(self.log_name, n_net)
 
         if not prev_state:
-            new_update_state = Update(new_state.id, new_state.places, set(), new_state.transitions, set(), new_state.edges, set(), [])
+            new_update_state = Update(new_state.id, new_state.places, set(), new_state.transitions, set(), new_state.edges, set())
             self.update_queue.put(new_update_state)
             self.petri_net_state = new_state
             return
@@ -127,7 +127,6 @@ class Miner:
     def update_internal_state(self, old: PetriNetState, new: PetriNetState) -> None:
         """Update the internal state, keeping original ID's of transitions and edges intact."""
         self.petri_net_state.places = new.places
-        self.petri_net_state.markings = new.markings
 
         for new_p in new.places:
             matching = next((p for p in old.places if p == new_p), None)
@@ -151,7 +150,7 @@ class Miner:
         """Get an update that contains the entire Petri net model and ongoing instances.
         This is used to send the latest state for newly connected WebSocket clients."""
         return Update(self.log_name, self.petri_net_state.places, set(), self.petri_net_state.transitions, set(),
-                      self.petri_net_state.edges, set(), [])
+                      self.petri_net_state.edges, set())
 
 
 # State helper methods
@@ -159,7 +158,7 @@ class Miner:
 
 def get_petri_net_state(name: str, net: PetriNet) -> PetriNetState:
     """Convert a Petri net to a simple state object."""
-    return PetriNetState(name, places_to_set(net.places), transitions_to_set(net.transitions), arcs_to_set(net.arcs), [])
+    return PetriNetState(name, places_to_set(net.places), transitions_to_set(net.transitions), arcs_to_set(net.arcs))
 
 
 def get_update(old: PetriNetState, new: PetriNetState) -> Update:
@@ -170,7 +169,7 @@ def get_update(old: PetriNetState, new: PetriNetState) -> Update:
     t_rem = old.transitions - new.transitions
     e_new = new.edges - old.edges
     e_rem = old.edges - new.edges
-    return Update(new.id, p_new, p_rem, t_new, t_rem, e_new, e_rem, [])
+    return Update(new.id, p_new, p_rem, t_new, t_rem, e_new, e_rem)
 
 
 def places_to_set(places: Set[PetriNet.Place]) -> Set[StatePlace]:
