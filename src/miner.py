@@ -71,16 +71,31 @@ class Miner:
                 self.live_event_stream.append(event)
 
     def get_petri_net(self) -> Tuple[PetriNet, Marking, Marking]:
+        """Get the current Petri net from the event stream."""
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         return inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
 
     def conformance_check(self, events: List[str]):
+        """Perform a performance check on the current Petri net with the specified trace."""
         net, initial, final = self.get_petri_net()
         df = pd.DataFrame.from_records([{'process': 'p1', 'activity': e, 'timestamp': i} for i, e in enumerate(events)])
         df = format_dataframe(df, case_id='process', activity_key='activity', timestamp_key='timestamp')
         log = converter.apply(df, variant=converter.Variants.TO_EVENT_LOG)
         replayed_traces = token_replay.apply(log, net, initial, final)
         return replayed_traces
+
+    def name_to_id(self, name: id) -> str:
+        """Finds a place or transition with the specified name in the current Petri net, and returns its ID.
+           If no match can be found, the name is returned."""
+        for p in self.petri_net_state.places:
+            if p.name == name:
+                return p.id
+
+        for t in self.petri_net_state.transitions:
+            if t.name == name:
+                return t.id
+
+        return name
 
     def update(self):
         """Update the Petri net and broadcast any changes to the WebSocket clients"""

@@ -83,7 +83,7 @@ async def conformance_check(request: Request, log: str, events: List[str]):
     replay = miners[log].conformance_check(events)[0]
 
     def t_names(tr: List) -> List[str]:
-        return [t.label if t.label else t.name for t in tr]
+        return [miners[log].name_to_id(t.label) if t.label else t.name for t in tr]
 
     is_fit = 'trace_is_fit'
     fitness = 'trace_fitness'
@@ -96,8 +96,9 @@ async def conformance_check(request: Request, log: str, events: List[str]):
     remaining = 'remaining_tokens'
     produced = 'produced_tokens'
     return {is_fit: replay[is_fit], fitness: replay[fitness], transitions: t_names(replay[transitions]),
-            reached: [m.name for m in replay[reached]], enabled: t_names(replay[enabled]), problems: t_names(replay[problems]),
-            missing: replay[missing], consumed: replay[consumed], remaining: replay[remaining], produced: replay[produced]}
+            reached: [miners[log].name_to_id(m.name) for m in replay[reached]], enabled: t_names(replay[enabled]),
+            problems: t_names(replay[problems]), missing: replay[missing], consumed: replay[consumed],
+            remaining: replay[remaining], produced: replay[produced]}
 
 
 @app.on_event('startup')
