@@ -1,5 +1,6 @@
 from typing import List, Tuple
 from fastapi import WebSocket
+import logging
 
 
 class ConnectionManager:
@@ -23,5 +24,8 @@ class ConnectionManager:
         """Broadcast a message to all connections listening to a log."""
         applicable = [x for x in self.active_connections if x[1] == log]
         for connection in applicable:
-            await connection[0].send_text(message)
+            try:
+                await connection[0].send_text(message)
+            except Exception as e:
+                logging.error(f'Error while attempting to broadcast message to {connection}: {e}')
         return len(applicable)
