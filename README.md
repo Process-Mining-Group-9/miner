@@ -7,9 +7,7 @@
    1. On Linux: ```source venv\bin\activate```
    2. On Windows: ```\venv\Scripts\activate```
 3. Install the required packages using ```pip install -r requirements.txt```.
-4. The environment variables in ```.env``` need to be available to the program when running it. These are the options:
-   1. Install the [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) and run ```heroku local``` to start the application
-   2. When using an IDE like PyCharm, create a run configuration and copy-paste the contents of ```.env``` into the environment variables section
+4. Navigate to the ```src``` directory and run the application with ```python main.py```
 
 ## Type Checking
 

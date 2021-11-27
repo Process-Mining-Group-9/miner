@@ -6,6 +6,7 @@ from fastapi_utils.tasks import repeat_every
 from custom_logging import CustomizeLogger
 from petri_net_state import PetriNetState
 from mqtt_event import MqttEvent
+from dotenv import load_dotenv
 from typing import Dict, List
 from miner import Miner
 from queue import Queue
@@ -13,6 +14,8 @@ import db_helper
 import logging
 import uvicorn
 import os
+
+load_dotenv()
 
 miners: Dict[str, Miner] = {}
 new_event_queue: Dict[str, Queue] = {}
