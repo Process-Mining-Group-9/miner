@@ -73,7 +73,7 @@ class Miner:
     def get_petri_net(self) -> Tuple[PetriNet, Marking, Marking]:
         """Get the current Petri net from the event stream."""
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
-        return inductive_miner.apply_dfg(dfg, start_act, end_act, activities)
+        return inductive_miner.apply_dfg(dfg, start_act, end_act, activities, variant=inductive_miner.Variants.IMd)
 
     def conformance_check(self, events: List[str]):
         """Perform a performance check on the current Petri net with the specified trace."""
