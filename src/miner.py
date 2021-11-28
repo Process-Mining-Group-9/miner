@@ -69,7 +69,8 @@ class Miner:
             os.makedirs('../xes-files', exist_ok=True)
             os.makedirs('../conf-check', exist_ok=True)
             self.xes = xes_importer.apply(f'../xes-files/{self.log_name}.xes', variant=xes_importer.Variants.ITERPARSE,parameters={xes_importer.Variants.ITERPARSE.value.Parameters.TIMESTAMP_SORT: True})
-            self.xes_conf_file = open(f'../conf-check/{self.log_name}.txt', 'w')
+            self.xes_conf_file = open(f'../conf-check/{self.log_name}.csv', 'w')
+            self.xes_conf_file.write('Events,Fitness\n')
 
         # Add initial events to live event stream
         self.append_events_to_stream(self.initial_events)
