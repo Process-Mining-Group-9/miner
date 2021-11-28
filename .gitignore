@@ -153,3 +153,4 @@ fabric.properties
 /logs
 /data
 /pn_images
+/conf-check
