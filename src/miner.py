@@ -11,6 +11,7 @@ import os
 from pm4py import format_dataframe
 from pm4py.objects.conversion.log import converter
 from pm4py.objects.petri_net.obj import PetriNet, Marking
+from pm4py.objects.log.importer.xes import importer as xes_importer
 from pm4py.streaming.stream.live_event_stream import LiveEventStream
 from pm4py.streaming.algo.discovery.dfg import algorithm as dfg_discovery
 from pm4py.algo.conformance.tokenreplay import algorithm as token_replay
@@ -54,11 +55,22 @@ class Miner:
         self.update_queue = update_queue
         self.initial_events: List[MqttEvent] = events if events is not None else []
         self.petri_net_state: Optional[PetriNetState] = None
+
         # Register live event stream and starting DFG (Directly Follows Graph) discovery
         self.live_event_stream = LiveEventStream()
+        self.recorded = 0
         self.streaming_dfg = dfg_discovery.apply()
         self.live_event_stream.register(self.streaming_dfg)
         self.live_event_stream.start()
+
+        # Additional feature for performing conformance checking on the model using an existing XES file
+        self.do_conformance_check = os.environ['CONFORMANCE_CHECK'] == 'True'
+        if self.do_conformance_check:
+            os.makedirs('../xes-files', exist_ok=True)
+            os.makedirs('../conf-check', exist_ok=True)
+            self.xes = xes_importer.apply(f'../xes-files/{self.log_name}.xes', variant=xes_importer.Variants.ITERPARSE,parameters={xes_importer.Variants.ITERPARSE.value.Parameters.TIMESTAMP_SORT: True})
+            self.xes_conf_file = open(f'../conf-check/{self.log_name}.txt', 'w')
+
         # Add initial events to live event stream
         self.append_events_to_stream(self.initial_events)
 
@@ -69,11 +81,18 @@ class Miner:
             event_stream = get_pm4py_stream(events)
             for event in event_stream:
                 self.live_event_stream.append(event)
+                self.recorded += 1
 
     def get_petri_net(self) -> Tuple[PetriNet, Marking, Marking]:
         """Get the current Petri net from the event stream."""
         dfg, activities, start_act, end_act = self.streaming_dfg.get()
         return inductive_miner.apply_dfg(dfg, start_act, end_act, activities, variant=inductive_miner.Variants.IMd)
+
+    def conformance_check_xes(self, net, initial, final):
+        replay = token_replay.apply(self.xes, net, initial, final)
+        avg_fitness = sum([r['trace_fitness'] for r in replay]) / len(replay)
+        self.xes_conf_file.write(f'{self.recorded};{avg_fitness}\n')
+        self.xes_conf_file.flush()
 
     def conformance_check(self, events: List[str]):
         """Perform a performance check on the current Petri net with the specified trace."""
@@ -123,6 +142,9 @@ class Miner:
         if update_state.is_not_empty():
             self.update_queue.put(update_state)
             self.update_internal_state(prev_state, new_state)
+
+            if self.do_conformance_check:
+                self.conformance_check_xes(n_net, n_init, n_final)
 
     def update_internal_state(self, old: PetriNetState, new: PetriNetState) -> None:
         """Update the internal state, keeping original ID's of transitions and edges intact."""
